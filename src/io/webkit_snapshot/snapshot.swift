@@ -16,6 +16,7 @@ final class SnapshotRunner: NSObject, WKNavigationDelegate {
     private let outputURL: URL
     private let reportURL: URL
     private let viewportWidth: CGFloat
+    private let snapshotScale: CGFloat
     private let outputFormat: String
     private(set) var done = false
     private(set) var failure: String?
@@ -34,6 +35,7 @@ final class SnapshotRunner: NSObject, WKNavigationDelegate {
         reportURL: URL,
         viewportWidth: CGFloat,
         outputFormat: String = "png",
+        snapshotScale: CGFloat = 1,
         webView: WKWebView? = nil,
         completion: ((String?) -> Void)? = nil
     ) {
@@ -43,6 +45,7 @@ final class SnapshotRunner: NSObject, WKNavigationDelegate {
         self.reportURL = reportURL
         self.viewportWidth = viewportWidth
         self.outputFormat = outputFormat
+        self.snapshotScale = snapshotScale
         self.completion = completion
         if let webView {
             self.webView = webView
@@ -258,6 +261,8 @@ final class SnapshotRunner: NSObject, WKNavigationDelegate {
         let configuration = WKSnapshotConfiguration()
         configuration.rect = CGRect(x: 0, y: 0, width: viewportWidth, height: height)
         configuration.afterScreenUpdates = true
+        // snapshotWidth changes capture density, not the WKWebView/CSS viewport.
+        configuration.snapshotWidth = NSNumber(value: Double(viewportWidth * snapshotScale))
 
         webView.takeSnapshot(with: configuration) { image, error in
             guard !self.done else { return }
@@ -349,6 +354,7 @@ private struct SnapshotRequest: Decodable {
     let reportPath: String
     let width: UInt32
     let outputFormat: String?
+    let snapshotScale: UInt8?
     let timeoutMs: UInt32?
 
     enum CodingKeys: String, CodingKey {
@@ -358,6 +364,7 @@ private struct SnapshotRequest: Decodable {
         case reportPath = "report_path"
         case width
         case outputFormat = "output_format"
+        case snapshotScale = "snapshot_scale"
         case timeoutMs = "timeout_ms"
     }
 }
@@ -575,12 +582,13 @@ private final class SnapshotServer {
             !request.outputPath.isEmpty,
             !request.reportPath.isEmpty,
             request.width > 0,
+            (1...3).contains(request.snapshotScale ?? 1),
             request.outputFormat == nil || ["png", "tiff"].contains(request.outputFormat ?? ""),
             (1...25_000).contains(request.timeoutMs ?? 25_000)
         else {
             replyThenContinue(
                 on: connection,
-                response: SnapshotResponse(ok: false, error: "request contains an empty path or zero width")
+                response: SnapshotResponse(ok: false, error: "invalid snapshot request: check paths, width, format, timeout and scale (1...3)")
             )
             return
         }
@@ -597,6 +605,7 @@ private final class SnapshotServer {
             reportURL: URL(fileURLWithPath: request.reportPath),
             viewportWidth: CGFloat(request.width),
             outputFormat: request.outputFormat ?? "png",
+            snapshotScale: CGFloat(request.snapshotScale ?? 1),
             webView: webView
         ) { [weak self] failure in
             DispatchQueue.main.async {

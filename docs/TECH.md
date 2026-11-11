@@ -51,7 +51,7 @@
 条件:
 
 - `stdout` と `stdin` がともに TTY
-- terminal 判定が Ghostty または Kitty
+- terminal 判定が Rex、Ghostty、Kitty または WezTerm
 
 挙動:
 
@@ -141,6 +141,25 @@ diagnostics には以下が含まれる。
 - typography metrics
 - asset failure diagnostics
 
+### Snapshot density
+
+`--snapshot-scale 1|2|3` (default `1`) is threaded through `AppConfig` and the
+platform snapshot facade. It is independent of `GRAPHIC_PAGE_ZOOM=1.55` and the
+CSS viewport width. WebKit sets `WKSnapshotConfiguration.snapshotWidth` to the
+viewport width times this multiplier, leaving the view frame and DOM layout
+unchanged. Both PNG and interactive TIFF use the same capture path; worker
+requests validate the multiplier and reset it for each capture. Existing PNG API
+callers retain native density unless they call `render_html_to_png_with_scale`.
+
+`GraphicPage` derives raster scale from actual image width divided by terminal
+display width. Consequently display height, total rows and scroll positions stay
+fixed while source crop coordinates gain precision at higher density (integer
+raster rounding can differ by one native pixel). No post-capture enlargement is
+performed. Windows applies the multiplier to its existing CDP device scale factor
+and checks dimension/pixel limits at the resulting density. Linux interactive
+rendering remains unsupported; headless output is unchanged on all platforms.
+Raster memory and transfer costs increase with density (roughly 4x/9x pixels).
+
 ### 6.3 Browser Open
 
 `io::browser` は OS ごとの既定ブラウザ起動コマンドを選ぶ。対話モードで `o` を押したときのみ使用する。
@@ -208,7 +227,7 @@ repo の `bin/mdv` は install / update の実体であり、`main` への push 
 1. Windows の画像表示には対応端末（WezTerm）とインストール済み Edge/Chrome が必要
 2. native compositor の描画・入力の感触は各端末・OSで別途確認が必要
 3. link open は first link 固定で、link focus state を持たない
-4. terminal 判定は Ghostty / Kitty に限定される
+4. terminal 判定は Rex / Ghostty / Kitty / WezTerm の allowlist（Rex は `TERM_PROGRAM=rex`、大文字小文字を区別しない Kitty graphics 経路）
 5. README の platform statement と現実装の runtime contract に差がある
 
 ## 11. 改善候補
@@ -220,7 +239,7 @@ repo の `bin/mdv` は install / update の実体であり、`main` への push 
 
 ## Windows backend
 
-`io::snapshot::render_html_to_raster` はOSに応じて既存WebKitか `io::chromium_snapshot` を選択します。Windowsはインストール済みEdge/Chromeを専用profile・sandbox有効で利用し、CSS viewportとdeviceScaleFactor=2を固定してlossless PNGを取得します。通常のブラウザprofileへ接続せず、画像完成結果のキャッシュもしません。
+`io::snapshot::render_html_to_raster` はOSに応じて既存WebKitか `io::chromium_snapshot` を選択します。Windowsはインストール済みEdge/Chromeを専用profile・sandbox有効で利用し、CSS viewportとdeviceScaleFactor=2を既定値としてlossless PNGを取得します。`--snapshot-scale 1|2|3` はこの密度に掛ける倍率（2/4/6 pixels per CSS pixel）で、CSS viewport は変更しません。通常のブラウザprofileへ接続せず、画像完成結果のキャッシュもしません。
 
 WindowsのWezTermにはOSC1337で可視領域のPNGを送り、小数位置のスクロール補間を維持します。ConPTYがKitty画像命令を透過するかに依存しない構成です。Windows Terminalはこの画像転送方式の対象外です。macOS Ghostty/Kittyの常駐画像方式は変更しません。
 

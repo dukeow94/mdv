@@ -36,13 +36,30 @@ pub fn render_html_to_png(
     base_dir: &Path,
     viewport_width_px: u32,
 ) -> Result<SnapshotResult> {
-    let (png_bytes, diagnostics) = render_image(html, base_dir, viewport_width_px, "png")?;
+    render_html_to_png_with_scale(html, base_dir, viewport_width_px, 1)
+}
+
+/// Captures at a multiple of WebKit's native raster density without changing CSS layout.
+pub fn render_html_to_png_with_scale(
+    html: &str,
+    base_dir: &Path,
+    viewport_width_px: u32,
+    snapshot_scale: u8,
+) -> Result<SnapshotResult> {
+    anyhow::ensure!((1..=3).contains(&snapshot_scale), "snapshot scale must be 1, 2, or 3");
+    let (png_bytes, diagnostics) =
+        render_image(html, base_dir, viewport_width_px, "png", snapshot_scale)?;
     Ok(SnapshotResult { png_bytes, diagnostics })
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn render_html_to_tiff(html: &str, base_dir: &Path, width: u32) -> Result<Vec<u8>> {
-    render_image(html, base_dir, width, "tiff").map(|(bytes, _)| bytes)
+pub(crate) fn render_html_to_tiff(
+    html: &str,
+    base_dir: &Path,
+    width: u32,
+    snapshot_scale: u8,
+) -> Result<Vec<u8>> {
+    render_image(html, base_dir, width, "tiff", snapshot_scale).map(|(bytes, _)| bytes)
 }
 
 #[cfg(target_os = "macos")]
@@ -51,6 +68,7 @@ fn render_image(
     base_dir: &Path,
     viewport_width_px: u32,
     format: &str,
+    snapshot_scale: u8,
 ) -> Result<(Vec<u8>, SnapshotDiagnostics)> {
     let _span = info_span!("webkit_snapshot.render_image", viewport_width_px, format).entered();
     let _guard = snapshot_render_lock()
@@ -58,8 +76,14 @@ fn render_image(
         .map_err(|_| anyhow::anyhow!("snapshot render lock poisoned"))?;
     let read_access_root = common_read_access_root(html, base_dir);
     let workspace = create_workspace(base_dir, &read_access_root)?;
-    let result =
-        render_in_workspace(html, &read_access_root, &workspace, viewport_width_px, format);
+    let result = render_in_workspace(
+        html,
+        &read_access_root,
+        &workspace,
+        viewport_width_px,
+        format,
+        snapshot_scale,
+    );
     let _ = cleanup_workspace(&workspace);
     result
 }
@@ -71,6 +95,7 @@ fn render_in_workspace(
     workspace: &Path,
     viewport_width_px: u32,
     format: &str,
+    snapshot_scale: u8,
 ) -> Result<(Vec<u8>, SnapshotDiagnostics)> {
     let html_path = workspace.join("document.html");
     let output_path = workspace.join(format!("snapshot.{format}"));
@@ -84,6 +109,7 @@ fn render_in_workspace(
         &report_path,
         viewport_width_px,
         format,
+        snapshot_scale,
     )?;
 
     let bytes = fs::read(&output_path).context("snapshot helper did not produce raster")?;
@@ -102,6 +128,7 @@ fn render_image(
     _base_dir: &Path,
     _viewport_width_px: u32,
     _format: &str,
+    _snapshot_scale: u8,
 ) -> Result<(Vec<u8>, SnapshotDiagnostics)> {
     bail!("webkit snapshot rendering is only supported on macOS");
 }

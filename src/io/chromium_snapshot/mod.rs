@@ -258,7 +258,9 @@ pub(crate) fn render_html_to_png(
     html: &str,
     base_dir: &Path,
     viewport_width_px: u32,
+    snapshot_scale: u8,
 ) -> Result<SnapshotResult> {
+    ensure!((1..=3).contains(&snapshot_scale), "snapshot scale must be 1, 2, or 3");
     ensure!(viewport_width_px > 0, "snapshot viewport width must be greater than zero");
     let _span = info_span!("chromium_snapshot.render_image", viewport_width_px).entered();
     let workspace = create_workspace(base_dir)?;
@@ -267,10 +269,14 @@ pub(crate) fn render_html_to_png(
     let page_url = Url::from_file_path(&html_path)
         .map_err(|_| anyhow::anyhow!("failed to create a file URL for snapshot input"))?;
 
-    render_file_url(page_url.as_str(), viewport_width_px)
+    render_file_url(page_url.as_str(), viewport_width_px, snapshot_scale)
 }
 
-fn render_file_url(page_url: &str, viewport_width_px: u32) -> Result<SnapshotResult> {
+fn render_file_url(
+    page_url: &str,
+    viewport_width_px: u32,
+    snapshot_scale: u8,
+) -> Result<SnapshotResult> {
     let browser_path = browser_executable()?;
     let process_deadline = Instant::now() + BROWSER_START_TIMEOUT + RENDER_TIMEOUT;
     let startup_deadline = Instant::now() + BROWSER_START_TIMEOUT;
@@ -293,7 +299,7 @@ fn render_file_url(page_url: &str, viewport_width_px: u32) -> Result<SnapshotRes
     tab.call_method(Emulation::SetDeviceMetricsOverride {
         width: viewport_width_px,
         height: VIEWPORT_HEIGHT_PX,
-        device_scale_factor: DEVICE_SCALE_FACTOR,
+        device_scale_factor: DEVICE_SCALE_FACTOR * f64::from(snapshot_scale),
         mobile: false,
         scale: None,
         screen_width: Some(viewport_width_px),
@@ -312,7 +318,7 @@ fn render_file_url(page_url: &str, viewport_width_px: u32) -> Result<SnapshotRes
     tab.navigate_to(page_url).context("failed to navigate Chromium snapshot tab")?;
     wait_for_document_navigation(&tab, page_url, render_deadline)?;
 
-    let diagnostics = wait_for_readiness(&tab, viewport_width_px, render_deadline)?;
+    let diagnostics = wait_for_readiness(&tab, viewport_width_px, render_deadline, snapshot_scale)?;
     remaining_until(render_deadline, "Chromium snapshot rendering timed out before capture")?;
     let screenshot = tab
         .call_method(Page::CaptureScreenshot {
@@ -446,6 +452,7 @@ fn wait_for_readiness(
     tab: &Tab,
     viewport_width_px: u32,
     deadline: Instant,
+    snapshot_scale: u8,
 ) -> Result<SnapshotDiagnostics> {
     let mut last_height: Option<f64> = None;
     let mut stable_probe_count = 0;
@@ -482,7 +489,7 @@ fn wait_for_readiness(
                 probe.images_ready,
                 "local images did not become ready before the Chromium snapshot deadline"
             );
-            ensure_raster_bounds(viewport_width_px, probe.height)?;
+            ensure_raster_bounds(viewport_width_px, probe.height, snapshot_scale)?;
             return Ok(probe.diagnostics());
         }
         latest = Some(probe.diagnostics());
@@ -541,19 +548,24 @@ fn remaining_until(deadline: Instant, timeout_message: &str) -> Result<Duration>
     Ok(remaining)
 }
 
-fn ensure_raster_bounds(viewport_width_px: u32, css_height_px: f64) -> Result<()> {
+fn ensure_raster_bounds(
+    viewport_width_px: u32,
+    css_height_px: f64,
+    snapshot_scale: u8,
+) -> Result<()> {
+    let device_scale = DEVICE_SCALE_FACTOR_PX * u64::from(snapshot_scale);
     ensure!(
         css_height_px.is_finite() && css_height_px > 0.0,
         "Chromium reported an invalid full-page height: {css_height_px}"
     );
-    let width_px = u64::from(viewport_width_px) * DEVICE_SCALE_FACTOR_PX;
-    let max_css_height_px = MAX_RASTER_DIMENSION_PX / DEVICE_SCALE_FACTOR_PX;
+    let width_px = u64::from(viewport_width_px) * device_scale;
+    let max_css_height_px = MAX_RASTER_DIMENSION_PX / device_scale;
     ensure!(
         css_height_px.ceil() <= max_css_height_px as f64,
         "full-page PNG would exceed the {MAX_RASTER_DIMENSION_PX}-pixel dimension limit; split the document"
     );
     let height_px = (css_height_px.ceil() as u64)
-        .checked_mul(DEVICE_SCALE_FACTOR_PX)
+        .checked_mul(device_scale)
         .context("full-page PNG height overflowed while applying the device scale factor")?;
     ensure!(
         width_px <= MAX_RASTER_DIMENSION_PX && height_px <= MAX_RASTER_DIMENSION_PX,
@@ -703,8 +715,8 @@ mod tests {
         RgbaImage::from_pixel(1, 1, Rgba([220, 38, 38, 255])).save(base.join("pixel image.png"))?;
 
         let base_url = file_url(&base)?;
-        let light = render_html_to_png(&rich_html(&base_url, &font_url, "#ffffff"), &base, 320)?;
-        let dark = render_html_to_png(&rich_html(&base_url, &font_url, "#0d1117"), &base, 320)?;
+        let light = render_html_to_png(&rich_html(&base_url, &font_url, "#ffffff"), &base, 320, 1)?;
+        let dark = render_html_to_png(&rich_html(&base_url, &font_url, "#0d1117"), &base, 320, 1)?;
         let light_image = image::load_from_memory(&light.png_bytes)?.to_rgba8();
         let dark_image = image::load_from_memory(&dark.png_bytes)?.to_rgba8();
         assert_eq!(light_image.width(), 640, "CSS width must render at deviceScaleFactor=2");
@@ -737,7 +749,7 @@ mod tests {
 
         RgbaImage::from_pixel(1, 1, Rgba([37, 99, 235, 255])).save(base.join("pixel image.png"))?;
         let refreshed =
-            render_html_to_png(&rich_html(&base_url, &font_url, "#ffffff"), &base, 320)?;
+            render_html_to_png(&rich_html(&base_url, &font_url, "#ffffff"), &base, 320, 1)?;
         assert_ne!(
             light.png_bytes, refreshed.png_bytes,
             "a new render must read the current local image"
@@ -751,7 +763,7 @@ mod tests {
         let base = tempfile::tempdir()?;
         let html =
             format!(r#"<base href="{}"><img src="missing local.png">"#, file_url(base.path())?);
-        let error = match render_html_to_png(&html, base.path(), 320) {
+        let error = match render_html_to_png(&html, base.path(), 320, 1) {
             Ok(_) => panic!("a missing local image must fail the render"),
             Err(error) => error,
         };
@@ -762,9 +774,68 @@ mod tests {
         Ok(())
     }
 
+    #[cfg_attr(not(windows), ignore = "requires Chrome; run explicitly with MDV_TEST_BROWSER")]
+    #[test]
+    fn chromium_snapshot_scale_preserves_layout_and_crop_geometry() -> Result<()> {
+        use crate::ui::page_graphics::{build_graphic_page, total_rows, viewport_slice_at};
+
+        let base = tempfile::tempdir()?;
+        let html = format!(
+            "<style>body{{margin:0}}p{{font:16px/24px monospace;margin:0}}</style>\
+             <p><strong>{}</strong></p><div style='height:1200px;background:#123456'></div>",
+            "wrapping text does not change with raster density. ".repeat(30)
+        );
+        let baseline = render_html_to_png(&html, base.path(), 320, 1)?;
+        let reference = build_graphic_page(&baseline.png_bytes, 80, 496)?;
+        for scale in [2_u8, 3] {
+            let capture = render_html_to_png(&html, base.path(), 320, scale)?;
+            let page = build_graphic_page(&capture.png_bytes, 80, 496)?;
+            assert_eq!(page.image_width_px, reference.image_width_px * u32::from(scale));
+            assert_eq!(page.image_height_px, reference.image_height_px * u32::from(scale));
+            assert_eq!(page.display_height_px, reference.display_height_px);
+            assert_eq!(
+                capture.diagnostics, baseline.diagnostics,
+                "CSS typography and layout must not change"
+            );
+            assert_eq!(total_rows(&page, 16.0), total_rows(&reference, 16.0));
+            for scroll in [0.0, 1.25, 50.0, (total_rows(&page, 16.0) - 2) as f64] {
+                let crop = viewport_slice_at(&page, scroll, 20, 16.0);
+                let original = viewport_slice_at(&reference, scroll, 20, 16.0);
+                assert_eq!(crop.rows, original.rows);
+                // Source pixels round independently at each density; allow one native pixel.
+                assert!(
+                    crop.source_y_px.abs_diff(original.source_y_px * u32::from(scale))
+                        <= u32::from(scale)
+                );
+                assert!(
+                    crop.source_height_px.abs_diff(original.source_height_px * u32::from(scale))
+                        <= u32::from(scale)
+                );
+            }
+        }
+        for scale in [0, 4] {
+            assert!(render_html_to_png(&html, base.path(), 320, scale).is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn full_page_bounds_account_for_snapshot_multiplier() {
+        assert!(ensure_raster_bounds(320, 6000.0, 1).is_ok());
+        assert!(
+            ensure_raster_bounds(320, 6000.0, 3).is_err(),
+            "dimension limit must use scaled density"
+        );
+        assert!(ensure_raster_bounds(2000, 2000.0, 2).is_ok());
+        assert!(
+            ensure_raster_bounds(2000, 2000.0, 3).is_err(),
+            "pixel budget must use scaled density"
+        );
+    }
+
     #[test]
     fn full_page_bounds_rejects_extreme_heights_without_overflowing() {
-        let error = ensure_raster_bounds(320, f64::MAX)
+        let error = ensure_raster_bounds(320, f64::MAX, 3)
             .err()
             .unwrap_or_else(|| panic!("an extreme page height must be rejected"));
         assert!(

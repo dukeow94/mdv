@@ -20,6 +20,27 @@ fn parses_update_subcommand_without_document_path() {
 }
 
 #[test]
+fn snapshot_scale_defaults_to_one_and_reaches_view_configuration() {
+    use mdv::core::config::AppConfig;
+
+    let args = MdvArgs::parse_from(["mdv", "README.md"]);
+    assert_eq!(args.snapshot_scale, 1);
+    for scale in ["1", "2", "3"] {
+        let args = MdvArgs::parse_from([
+            "mdv",
+            "README.md",
+            "--theme",
+            "light",
+            "--snapshot-scale",
+            scale,
+        ]);
+        let config = AppConfig::try_from(args)
+            .unwrap_or_else(|error| panic!("view config should be valid: {error}"));
+        assert_eq!(config.snapshot_scale.to_string(), scale);
+    }
+}
+
+#[test]
 fn defaults_theme_to_system() {
     let args = MdvArgs::parse_from(["mdv", "docs/PRD.md"]);
 

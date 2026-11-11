@@ -31,11 +31,13 @@ pub(super) fn render(
     report_path: &Path,
     width: u32,
     format: &str,
+    snapshot_scale: u8,
 ) -> Result<()> {
     let directory = worker_directory()?;
     let request = serde_json::json!({
         "html_path": html_path, "read_access_root": read_access_root,
         "output_path": output_path, "report_path": report_path, "width": width, "output_format": format, "timeout_ms": 25_000,
+        "snapshot_scale": snapshot_scale,
     });
     // Idle shutdown can race a connection. A render is idempotent, so retry a closed connection once.
     let response = send(&directory, &request).or_else(|error| {

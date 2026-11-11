@@ -28,6 +28,10 @@ pub struct MdvArgs {
     #[arg(long = "no-mermaid")]
     pub no_mermaid: bool,
 
+    /// Snapshot density multiplier (1, 2, or 3); keeps document size and wrapping.
+    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=3))]
+    pub snapshot_scale: u8,
+
     /// Print the current version.
     #[arg(short = 'V', long = "version", global = true)]
     pub version: bool,

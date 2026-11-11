@@ -73,10 +73,30 @@ mdv README.md                           # system theme (default)
 mdv --theme dark notes.md               # dark theme
 mdv --watch docs/guide.md               # auto-reload on save
 mdv --no-mermaid spec.md                # skip Mermaid rendering
+mdv --snapshot-scale 2 README.md        # 2x snapshot density, same document size
+mdv --snapshot-scale 3 README.md        # 3x snapshot density
 mdv update                              # replace this mdv if main/bin/mdv changed
 mdv --version                           # print the current version
 mdv ./README.md | head -n 50            # plain-text output (pipe/CI)
 ```
+
+### Snapshot resolution
+
+`--snapshot-scale 1|2|3` multiplies the browser's existing capture resolution;
+`1` is the default and preserves the previous output. `2` and `3` capture more
+pixels **without changing text size, line wrapping, terminal placement, or scroll
+positions**. This is browser rasterization, not enlargement of an existing image.
+
+On macOS, the multiplier applies to WebKit's native snapshot density (which may
+depend on the system's backing scale). On Windows, it multiplies Chromium's
+existing 2-pixels-per-CSS-pixel density: `1` / `2` / `3` produce 2 / 4 / 6 pixels
+per CSS pixel. The option has no effect on plain-text/headless output. Linux still
+has no interactive snapshot backend.
+
+Higher density costs roughly 4x / 9x raster memory at `2` / `3`, and can increase
+capture, encoding and image-transfer time. Windows retains its raster size limits;
+reduce the scale or split large documents if capture is refused. Actual sharpness
+also depends on the terminal's image resampling and display pixel density.
 
 ### Keyboard shortcuts
 

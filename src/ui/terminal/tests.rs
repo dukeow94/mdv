@@ -268,6 +268,7 @@ fn try_new_degrades_gracefully_when_graphic_mode_unavailable() {
 
     let viewer = TerminalViewer::try_new(
         AppConfig {
+            snapshot_scale: 1,
             path: path.clone(),
             watch: false,
             theme: Theme::Light,
@@ -299,6 +300,7 @@ fn sample_viewer(source: &str) -> TerminalViewer {
 
     TerminalViewer::new_for_tests(
         AppConfig {
+            snapshot_scale: 1,
             path: path.clone(),
             watch: false,
             theme: Theme::Light,

@@ -65,6 +65,7 @@ terminal 常用者が Markdown を読むとき、次の摩擦が発生しやす�
 - `--watch`
 - `--theme system|light|dark`
 - `--no-mermaid`
+- `--snapshot-scale 1|2|3` (default `1`; raster density multiplier, not document zoom)
 - `--version`
 - `update`
 
@@ -93,7 +94,7 @@ terminal 常用者が Markdown を読むとき、次の摩擦が発生しやす�
 
 ### 5.4 対話モードの体験
 
-対話モードは `stdout` と `stdin` の両方が TTY で、かつ terminal 判定が Ghostty または Kitty のときにだけ起動する。
+対話モードは `stdout` と `stdin` の両方が TTY で、かつ terminal 判定が Rex、Ghostty、Kitty または WezTerm のときにだけ起動する。
 
 現行実装から確認できる操作は以下。
 
