@@ -1,3 +1,44 @@
+## Image density independent of snapshot scale
+
+Requested behavior: keep HTML `<img>` assets (including GIF, SVG files and the
+selected picture/srcset source) at the backend's native 1x-option density while
+text and inline vectors still use `--snapshot-scale`. Preserve image display
+geometry and source diagnostics. Only high-density captures need preparation;
+default 1 must remain unchanged. No image sharpening/filter option is added.
+
+- [x] Add failing real-WebKit pixel-detail regression distinguishing low-density img content from high-density inline vector content.
+- [x] Prepare loaded img assets as fixed-density canvas content immediately before capture, sharing browser-side logic across WebKit/Chromium; preserve computed layout/object-fit and avoid canvas export/CORS requirements.
+- [x] Cover picture/srcset, SVG files, GIF, image geometry and Windows native-density semantics; update documentation.
+- [x] Run full gates, actual-browser and PTY checks and inspect README artifacts.
+- [x] Commit and push the image-density policy to the fork branch (`e0d3deb`).
+
+### Image density review
+
+- Shared `src/io/snapshot_images.js` prepares `<img>` content at option-1 density
+  immediately before high-density capture, leaving text/inline SVG/Mermaid at the
+  requested resolution. Computed styles/content-box geometry, object-fit and
+  original diagnostics are preserved. No new dependency or image-density flag.
+- WebKit runs the script at its unchanged native DPR. Chromium now keeps DPR=2
+  and scales the screenshot clip, so image srcset selection and resolution media
+  queries no longer change with snapshot scale. Native option1 does no preparation.
+- Red/green evidence: source-image stripes gained detail at2x before preparation;
+  Chromium selected the4x picture source at option2 before capture/DPR separation.
+  Both now pass image-versus-vector density and original-diagnostics regressions.
+- Additional red/green caught WebKit's one-step canvas minification aliasing:
+  a fractional-size checkerboard had contrast56 at3x versus1 in the native shot.
+  Progressive halving before the final resize keeps contrast within native+10.
+- Final checks: JS syntax, fmt, all-targets/all-features clippy (-D warnings),
+  release build and full Rust suite180 passed (4 Chrome tests ignored by default).
+  All4 actual Chrome tests passed explicitly. GIF/SVG-file/picture/srcset,
+  contain/cover/none/scale-down, padding/border and inline image geometry covered.
+- Final release PTY at1/2/3x retained645/1290/1935px raster widths and100x39
+  placements, and passed forward/reverse/top/bottom/resize/q with no empty-visible
+  image packet interval. The3x README PNG was directly opened after preparation;
+  text stays high-resolution and the GIF's fine grid is substantially softened.
+  Source GIF is untouched; terminal resampling can still affect appearance.
+- No new Rex tab/session was opened, and native Rex compositor appearance remains
+  user-side verification. Installed binary, aliases and tracked binaries untouched.
+
 ## Follow-up: 3x image grid and white scroll flashes
 
 - [x] Inspect source GIF and WebKit PNG separately from the Rex compositor; reproduce the resident replacement ordering defect.
