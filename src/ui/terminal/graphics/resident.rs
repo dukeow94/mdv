@@ -137,10 +137,18 @@ impl PageGraphics {
         }
 
         let initial_upload = self.windows.is_empty();
-        if let Some(index) = self.containing_window_index(slice) {
+        let already_resident = if let Some(index) = self.containing_window_index(slice) {
             self.active_image_id = Some(self.windows[index].image_id);
+            true
+        } else {
+            false
+        };
+        let mut maintenance = self.maintenance()?;
+        if !already_resident {
+            // A newly prepared window may supply this frame's pixels. The active
+            // (still visible) image is protected by slot_for_window during upload.
+            commands.append(&mut maintenance);
         }
-        commands.extend(self.maintenance()?);
         self.update_motion(slice.source_y_px);
         let window_index = match self.containing_window_index(slice) {
             Some(index) => index,
@@ -156,7 +164,6 @@ impl PageGraphics {
         }
 
         let visible_placements = vec![(image_id, image_id)];
-        commands.extend(delete_hidden_placements(previous_visible_placements, &visible_placements));
         let placement = KittyImagePlacement {
             image_id,
             placement_id: image_id,
@@ -171,6 +178,12 @@ impl PageGraphics {
             z_index: -1,
         };
         commands.push(format!("{}{}", ansi_cursor_move(0, 0), encode_place(&placement)));
+        commands.extend(delete_hidden_placements(previous_visible_placements, &visible_placements));
+        // If the target was already resident, show it before any background
+        // eviction/upload. A multi-megabyte upload can exceed a terminal's
+        // synchronized-output deadline; never leave the old placement blank
+        // while those bytes are in flight.
+        commands.append(&mut maintenance);
 
         Ok((commands, visible_placements))
     }
@@ -483,6 +496,78 @@ mod tests {
     }
 
     #[test]
+    fn scrolling_keeps_a_placement_visible_during_every_upload_and_eviction() {
+        use std::collections::BTreeSet;
+
+        for scale in [1_u32, 2, 3] {
+            let page = GraphicPage {
+                width_cells: 80,
+                display_width_px: 80,
+                display_height_px: 6000,
+                image_width_px: 80 * scale,
+                image_height_px: 6000 * scale,
+                image: Arc::new(RgbaImage::from_pixel(
+                    80 * scale,
+                    6000 * scale,
+                    Rgba([40, 60, 80, 255]),
+                )),
+            };
+            let mut graphics = PageGraphics::default();
+            let metrics = CellMetrics { width_px: 1.0, height_px: 20.0 };
+            let mut previous = Vec::new();
+            let mut visible = BTreeSet::new();
+            let mut started = false;
+            let mut inspect = |commands: Vec<String>| {
+                for command in commands {
+                    for packet in command.split("\u{1b}_G").skip(1) {
+                        let header = packet.split([';', '\u{1b}']).next().unwrap_or_default();
+                        let fields: std::collections::BTreeMap<_, _> =
+                            header.split(',').filter_map(|field| field.split_once('=')).collect();
+                        let id = fields.get("i").and_then(|id| id.parse::<u32>().ok());
+                        match (fields.get("a").copied(), id) {
+                            (Some("t"), Some(id)) => assert!(
+                                !visible.contains(&id),
+                                "never overwrite a visible image during an upload at {scale}x"
+                            ),
+                            (Some("p"), Some(id)) => {
+                                visible.insert(id);
+                                started = true;
+                            }
+                            (Some("d"), Some(id)) => {
+                                visible.remove(&id);
+                            }
+                            _ => {}
+                        }
+                        assert!(
+                            !started || !visible.is_empty(),
+                            "every packet must retain a visible image at {scale}x"
+                        );
+                    }
+                }
+            };
+            for (index, scroll) in
+                [0.0, 1.0, 25.0, 70.0, 160.0, 10.0, 0.0, 250.0, 0.0].into_iter().enumerate()
+            {
+                if graphics.pending.is_some() {
+                    wait_until_ready_without_applying(&mut graphics);
+                }
+                if index % 2 == 0 {
+                    inspect(
+                        graphics
+                            .maintenance()
+                            .unwrap_or_else(|error| panic!("maintenance: {error}")),
+                    );
+                }
+                let (commands, placements) = graphics
+                    .commands(&page, scroll, 40, metrics, &previous)
+                    .unwrap_or_else(|error| panic!("scroll should render: {error}"));
+                inspect(commands);
+                previous = placements;
+            }
+        }
+    }
+
+    #[test]
     fn ready_forward_preparation_keeps_the_reversed_resident_window() {
         let page = page();
         let metrics = CellMetrics { width_px: 8.0, height_px: 2.0 };
@@ -506,5 +591,19 @@ mod tests {
 
         assert_eq!(reversed.iter().filter(|command| command.contains("a=t")).count(), 1);
         assert!(reversed.iter().any(|command| command.contains("a=p,i=1")));
+        let place = reversed
+            .iter()
+            .position(|command| command.contains("a=p,i=1"))
+            .unwrap_or_else(|| panic!("replacement placement must exist"));
+        let delete_previous = reversed
+            .iter()
+            .position(|command| command.contains(&format!("a=d,d=I,i={}", forward_visible[0].0)))
+            .unwrap_or_else(|| {
+                panic!("old resident should be evicted after the replacement is visible")
+            });
+        assert!(
+            place < delete_previous,
+            "keep the previous image visible until the next placement: a large upload can outlast synchronized output"
+        );
     }
 }

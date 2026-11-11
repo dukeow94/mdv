@@ -96,7 +96,9 @@ has no interactive snapshot backend.
 Higher density costs roughly 4x / 9x raster memory at `2` / `3`, and can increase
 capture, encoding and image-transfer time. Windows retains its raster size limits;
 reduce the scale or split large documents if capture is refused. Actual sharpness
-also depends on the terminal's image resampling and display pixel density.
+also depends on the terminal's image resampling and display pixel density. The
+multiplier applies to embedded images too: it cannot add missing source detail,
+and can reveal existing GIF dithering or moiré when the terminal resamples it.
 
 ### Keyboard shortcuts
 
