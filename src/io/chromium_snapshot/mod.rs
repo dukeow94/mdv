@@ -299,7 +299,7 @@ fn render_file_url(
     tab.call_method(Emulation::SetDeviceMetricsOverride {
         width: viewport_width_px,
         height: VIEWPORT_HEIGHT_PX,
-        device_scale_factor: DEVICE_SCALE_FACTOR * f64::from(snapshot_scale),
+        device_scale_factor: DEVICE_SCALE_FACTOR,
         mobile: false,
         scale: None,
         screen_width: Some(viewport_width_px),
@@ -318,13 +318,31 @@ fn render_file_url(
     tab.navigate_to(page_url).context("failed to navigate Chromium snapshot tab")?;
     wait_for_document_navigation(&tab, page_url, render_deadline)?;
 
-    let diagnostics = wait_for_readiness(&tab, viewport_width_px, render_deadline, snapshot_scale)?;
+    let (diagnostics, css_height) =
+        wait_for_readiness(&tab, viewport_width_px, render_deadline, snapshot_scale)?;
+    if snapshot_scale > 1 {
+        // Keep img assets at the pre-existing 2x density, independently of the
+        // higher screenshot capture scale used for text and inline vectors.
+        evaluate_value(
+            &tab,
+            &format!("({})({DEVICE_SCALE_FACTOR})", crate::io::snapshot::NATIVE_IMAGE_SCRIPT),
+        )
+        .context("failed to prepare native-density images")?;
+    }
     remaining_until(render_deadline, "Chromium snapshot rendering timed out before capture")?;
     let screenshot = tab
         .call_method(Page::CaptureScreenshot {
             format: Some(Page::CaptureScreenshotFormatOption::Png),
             quality: None,
-            clip: None,
+            // Capture scaling leaves devicePixelRatio/srcset and CSS resolution
+            // queries at their native defaults, unlike increasing the page DPR.
+            clip: (snapshot_scale > 1).then_some(Page::Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: f64::from(viewport_width_px),
+                height: css_height.ceil(),
+                scale: f64::from(snapshot_scale),
+            }),
             from_surface: Some(true),
             capture_beyond_viewport: Some(true),
             optimize_for_speed: Some(false),
@@ -453,7 +471,7 @@ fn wait_for_readiness(
     viewport_width_px: u32,
     deadline: Instant,
     snapshot_scale: u8,
-) -> Result<SnapshotDiagnostics> {
+) -> Result<(SnapshotDiagnostics, f64)> {
     let mut last_height: Option<f64> = None;
     let mut stable_probe_count = 0;
     let mut latest = None;
@@ -490,9 +508,9 @@ fn wait_for_readiness(
                 "local images did not become ready before the Chromium snapshot deadline"
             );
             ensure_raster_bounds(viewport_width_px, probe.height, snapshot_scale)?;
-            return Ok(probe.diagnostics());
+            return Ok((probe.diagnostics(), probe.height));
         }
-        latest = Some(probe.diagnostics());
+        latest = Some((probe.diagnostics(), probe.height));
         thread::sleep(READINESS_INTERVAL);
     }
 
@@ -815,6 +833,59 @@ mod tests {
         }
         for scale in [0, 4] {
             assert!(render_html_to_png(&html, base.path(), 320, scale).is_err());
+        }
+        Ok(())
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires Chrome; run explicitly with MDV_TEST_BROWSER")]
+    #[test]
+    fn chromium_keeps_img_density_and_srcset_selection_native() -> Result<()> {
+        let base = tempfile::tempdir()?;
+        let stripes = RgbaImage::from_fn(1920, 24, |x, _| {
+            let value = if x % 3 == 0 { 0 } else { 255 };
+            Rgba([value, value, value, 255])
+        });
+        stripes.save(base.path().join("stripes.png"))?;
+        for (density, color) in
+            [(2, [0, 255, 0, 255]), (4, [0, 0, 255, 255]), (6, [255, 0, 0, 255])]
+        {
+            RgbaImage::from_pixel(12, 12, Rgba(color))
+                .save(base.path().join(format!("{density}x.png")))?;
+        }
+        let html = format!(
+            "<base href='{}'><body style='margin:0;background:white'>\
+            <img src='stripes.png' width='320' height='4' style='display:block'>\
+            <picture><source srcset='2x.png 2x, 4x.png 4x, 6x.png 6x'>\
+            <img src='2x.png' width='12' height='12' style='display:block'></picture>\
+            <svg width='320' height='12' style='display:block'>\
+            <path d='M 0.1666667 0 V 12' stroke='black' stroke-width='0.3333333'/></svg></body>",
+            file_url(base.path())?
+        );
+        let mut native = None;
+        for scale in [1, 2, 3] {
+            let result = render_html_to_png(&html, base.path(), 320, scale)?;
+            let image = image::load_from_memory(&result.png_bytes)?.to_rgba8();
+            let density = image.width() / 320;
+            assert!(
+                (100..=230).contains(&image.get_pixel(10 * density, density)[0]),
+                "img must not resolve more source pixels at {scale}x"
+            );
+            assert_eq!(
+                image.get_pixel(density, 6 * density).0,
+                [0, 255, 0, 255],
+                "picture/srcset must select the native-density source at {scale}x"
+            );
+            let baseline = native.get_or_insert(result.diagnostics.clone());
+            assert_eq!(
+                &result.diagnostics, baseline,
+                "original asset selection and layout must stay fixed"
+            );
+            if scale == 3 {
+                assert!(
+                    image.get_pixel(0, 17 * density)[0] < 10,
+                    "inline vectors must still gain detail"
+                );
+            }
         }
         Ok(())
     }

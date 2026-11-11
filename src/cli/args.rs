@@ -28,7 +28,7 @@ pub struct MdvArgs {
     #[arg(long = "no-mermaid")]
     pub no_mermaid: bool,
 
-    /// Snapshot density multiplier (1, 2, or 3); keeps document size and wrapping.
+    /// Text/vector snapshot density (1, 2, or 3); images stay at native density.
     #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=3))]
     pub snapshot_scale: u8,
 

@@ -65,7 +65,7 @@ terminal 常用者が Markdown を読むとき、次の摩擦が発生しやす�
 - `--watch`
 - `--theme system|light|dark`
 - `--no-mermaid`
-- `--snapshot-scale 1|2|3` (default `1`; raster density multiplier, not document zoom)
+- `--snapshot-scale 1|2|3` (default `1`; text/vector density multiplier, not document zoom; img assets stay at native density)
 - `--version`
 - `update`
 

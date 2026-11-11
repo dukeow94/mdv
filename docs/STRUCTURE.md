@@ -135,6 +135,7 @@ src/
 | File | Role |
 | --- | --- |
 | `src/io/snapshot.rs` | OSごとのHTML raster backend選択 |
+| `src/io/snapshot_images.js` | 高密度 capture 前に img の内容だけを native density に固定する共通処理 |
 | `src/io/chromium_snapshot/mod.rs` | Windows Edge/ChromeのCDP描画・readiness・PNG取得 |
 | `src/io/webkit_snapshot/mod.rs` | HTML snapshot 実行の公開 API |
 | `src/io/webkit_snapshot/diagnostics.rs` | snapshot report の型 |

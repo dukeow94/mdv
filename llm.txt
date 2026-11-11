@@ -42,7 +42,7 @@ Examples:
 - --watch: reload when the file changes on disk.
 - --theme <system|light|dark>: default is system.
 - --no-mermaid: disable Mermaid rendering; show placeholders.
-- --snapshot-scale <1|2|3>: default 1; multiply native snapshot density without changing document size/wrapping (Windows existing 2x density becomes 2x/4x/6x). No effect on headless output.
+- --snapshot-scale <1|2|3>: default 1; multiply native text/inline-vector snapshot density without changing document size/wrapping. Embedded img assets (GIF/SVG files/picture/srcset included) always stay at option-1 native density. Windows text/vector density is 2x/4x/6x while img content stays at 2x. No effect on headless output.
 
 ## Environment variables (common)
 

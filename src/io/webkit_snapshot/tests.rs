@@ -55,6 +55,136 @@ fn scaled_snapshot_resolves_subpixel_vector_detail() {
     assert!(scaled.get_pixel(2, 3)[0] > 245, "adjacent pixels must remain white");
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn img_density_stays_native_while_inline_vectors_gain_detail() {
+    let workspace = tempfile::tempdir().unwrap_or_else(|error| panic!("workspace: {error}"));
+    let stripes = image::RgbaImage::from_fn(960, 12, |x, _| {
+        let value = if x % 3 == 0 { 0 } else { 255 };
+        image::Rgba([value, value, value, 255])
+    });
+    stripes
+        .save(workspace.path().join("stripes.png"))
+        .unwrap_or_else(|error| panic!("striped source: {error}"));
+    let base = url::Url::from_directory_path(workspace.path())
+        .unwrap_or_else(|()| panic!("fixture directory should become a file URL"));
+    let html = format!(
+        "<base href='{base}'><body style='margin:0;background:white'>\
+        <img src='stripes.png' width='320' height='4' style='display:block'>\
+        <svg width='320' height='12' style='display:block'>\
+        <path d='M 0.1666667 0 V 12' stroke='black' stroke-width='0.3333333'/></svg></body>"
+    );
+    let mut baseline = None;
+    for scale in [1, 2, 3] {
+        let snapshot = super::render_html_to_png_with_scale(&html, workspace.path(), 320, scale)
+            .unwrap_or_else(|error| panic!("capture at {scale}x: {error}"));
+        let image = image::load_from_memory(&snapshot.png_bytes)
+            .unwrap_or_else(|error| panic!("raster: {error}"))
+            .to_rgba8();
+        let density = image.width() / 320;
+        let image_pixel = image.get_pixel(10 * density, density)[0];
+        assert!(
+            (100..=230).contains(&image_pixel),
+            "img must retain native-density blended pixels, not resolve source stripes at {scale}x: {image_pixel}"
+        );
+        let native = baseline.get_or_insert(snapshot.diagnostics.clone());
+        assert_eq!(
+            &snapshot.diagnostics, native,
+            "original image diagnostics and layout must be preserved"
+        );
+        if scale == 3 {
+            assert!(
+                image.get_pixel(0, 5 * density)[0] < 10,
+                "inline vectors must still receive high-density rasterization"
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_density_images_preserve_gif_svg_picture_and_object_fit_geometry() {
+    let workspace = tempfile::tempdir().unwrap_or_else(|error| panic!("workspace: {error}"));
+    image::RgbaImage::from_pixel(640, 64, image::Rgba([0, 80, 220, 180]))
+        .save(workspace.path().join("source.gif"))
+        .unwrap_or_else(|error| panic!("GIF fixture: {error}"));
+    std::fs::write(workspace.path().join("source.svg"),
+        "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='60'><rect width='240' height='60' fill='red'/></svg>")
+        .unwrap_or_else(|error| panic!("SVG fixture: {error}"));
+    let base =
+        url::Url::from_directory_path(workspace.path()).unwrap_or_else(|()| panic!("fixture URL"));
+    let html = format!(
+        "<base href='{base}'><style>body{{margin:0;font:16px/24px sans-serif}}\
+        .frame{{text-align:center}}img{{vertical-align:middle}}\
+        .box{{box-sizing:border-box;border:2px solid #000;padding:3px;margin:5px}}\
+        </style><body><p>Before images</p><div class='frame'>\
+        <picture><source media='(min-width:200px)' srcset='source.svg 1x, source.svg 2x'>\
+        <img class='box' src='source.gif' width='120' height='60' style='object-fit:contain;object-position:right bottom'></picture></div>\
+        <p>Inline <img src='source.gif' width='90' height='30'> tail</p>\
+        <img class='box' src='source.gif' width='120' height='40' style='object-fit:cover;object-position:left top;display:block'>\
+        <img class='box' src='source.svg' width='90' height='40' style='object-fit:scale-down;display:block'>\
+        <img src='source.svg' width='90' height='40' style='object-fit:none;display:block'>\
+        <p>After images</p></body>"
+    );
+    let mut baseline = None;
+    for scale in [1, 2, 3] {
+        let snapshot = super::render_html_to_png_with_scale(&html, workspace.path(), 320, scale)
+            .unwrap_or_else(|error| panic!("image geometry at {scale}x: {error}"));
+        let page = crate::ui::page_graphics::build_graphic_page(&snapshot.png_bytes, 80, 496)
+            .unwrap_or_else(|error| panic!("page: {error}"));
+        let reference =
+            baseline.get_or_insert((snapshot.diagnostics.clone(), page.display_height_px));
+        assert_eq!(
+            snapshot.diagnostics, reference.0,
+            "original sources and display dimensions must stay fixed"
+        );
+        assert_eq!(page.display_height_px, reference.1);
+        assert_eq!(snapshot.diagnostics.images.len(), 5);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_density_image_minification_does_not_introduce_checkerboard_moire() {
+    let workspace = tempfile::tempdir().unwrap_or_else(|error| panic!("workspace: {error}"));
+    image::RgbaImage::from_fn(1920, 1080, |x, y| {
+        let value = if (x + y) % 2 == 0 { 0 } else { 255 };
+        image::Rgba([value, value, value, 255])
+    })
+    .save(workspace.path().join("checker.png"))
+    .unwrap_or_else(|error| panic!("checker fixture: {error}"));
+    let base =
+        url::Url::from_directory_path(workspace.path()).unwrap_or_else(|()| panic!("fixture URL"));
+    let html = format!(
+        "<base href='{base}'><body style='margin:0'><img src='checker.png' width='317' height='179' style='display:block'></body>"
+    );
+    let mut native_contrast = None;
+    for scale in [1, 3] {
+        let snapshot = super::render_html_to_png_with_scale(&html, workspace.path(), 320, scale)
+            .unwrap_or_else(|error| panic!("checker capture: {error}"));
+        let image = image::load_from_memory(&snapshot.png_bytes)
+            .unwrap_or_else(|error| panic!("checker raster: {error}"))
+            .to_rgba8();
+        let density = image.width() / 320;
+        let mut minimum = 255_u8;
+        let mut maximum = 0_u8;
+        for y in 5..174 {
+            for x in 5..312 {
+                let value =
+                    image.get_pixel(x * density + density / 2, y * density + density / 2)[0];
+                minimum = minimum.min(value);
+                maximum = maximum.max(value);
+            }
+        }
+        let contrast = u16::from(maximum) - u16::from(minimum);
+        let native = *native_contrast.get_or_insert(contrast);
+        assert!(
+            contrast <= native + 10,
+            "image preparation must not add minification moire at {scale}x: contrast={contrast}, native={native}"
+        );
+    }
+}
+
 #[test]
 fn diagnostics_default_to_empty_assets() {
     let diagnostics = SnapshotDiagnostics::default();
@@ -166,6 +296,7 @@ fn worker_renders_fresh_documents_recovers_and_scales_without_reflow() {
         let request = serde_json::json!({
             "html_path": html, "read_access_root": dir.path(),
             "output_path": output, "report_path": report, "width": 320,
+            "image_preparation_script": crate::io::snapshot::NATIVE_IMAGE_SCRIPT,
         });
         let render_scaled =
             |format: &str, timeout_ms: u32, scale: u8| -> Result<serde_json::Value> {

@@ -1,5 +1,7 @@
 # Lessons
 
+- Separating image density from page density requires testing minification quality, not just canvas dimensions: WebKit can alias fine image patterns in a single canvas draw even with imageSmoothingQuality=high. Compare a fractional-size checkerboard against the native snapshot and prefilter progressively; keep browser DPR fixed so srcset/media queries do not change with capture scale.
+
 - High-density snapshot validation must include embedded raster/animated images and sustained native-terminal scrolling. Decodable PNGs, correct geometry and PTY transport do not prove freedom from browser tiling seams, compositor artifacts or synchronized-output timeout flashes. Inspect the raster at native density and measure full upload frame duration before claiming visual readiness.
 
 - Do not call an implementation a rich markdown viewer until it has been validated in a real TTY and is visibly distinct from raw markdown output.

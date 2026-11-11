@@ -17,6 +17,8 @@ final class SnapshotRunner: NSObject, WKNavigationDelegate {
     private let reportURL: URL
     private let viewportWidth: CGFloat
     private let snapshotScale: CGFloat
+    private let imagePreparationScript: String?
+    private var imagesPrepared = false
     private let outputFormat: String
     private(set) var done = false
     private(set) var failure: String?
@@ -36,6 +38,7 @@ final class SnapshotRunner: NSObject, WKNavigationDelegate {
         viewportWidth: CGFloat,
         outputFormat: String = "png",
         snapshotScale: CGFloat = 1,
+        imagePreparationScript: String? = nil,
         webView: WKWebView? = nil,
         completion: ((String?) -> Void)? = nil
     ) {
@@ -46,6 +49,7 @@ final class SnapshotRunner: NSObject, WKNavigationDelegate {
         self.viewportWidth = viewportWidth
         self.outputFormat = outputFormat
         self.snapshotScale = snapshotScale
+        self.imagePreparationScript = imagePreparationScript
         self.completion = completion
         if let webView {
             self.webView = webView
@@ -257,6 +261,22 @@ final class SnapshotRunner: NSObject, WKNavigationDelegate {
 
     private func takeSnapshot(height: CGFloat) {
         guard !done else { return }
+        if snapshotScale > 1 && !imagesPrepared {
+            guard let script = imagePreparationScript else {
+                fail("high-density capture requires native-density image preparation")
+                return
+            }
+            webView.evaluateJavaScript("(\(script))(window.devicePixelRatio)") { _, error in
+                guard !self.done else { return }
+                if let error {
+                    self.fail("failed to prepare native-density images: \(error.localizedDescription)")
+                    return
+                }
+                self.imagesPrepared = true
+                self.takeSnapshot(height: height)
+            }
+            return
+        }
         profile("visuals_ready")
         let configuration = WKSnapshotConfiguration()
         configuration.rect = CGRect(x: 0, y: 0, width: viewportWidth, height: height)
@@ -355,6 +375,7 @@ private struct SnapshotRequest: Decodable {
     let width: UInt32
     let outputFormat: String?
     let snapshotScale: UInt8?
+    let imagePreparationScript: String?
     let timeoutMs: UInt32?
 
     enum CodingKeys: String, CodingKey {
@@ -365,6 +386,7 @@ private struct SnapshotRequest: Decodable {
         case width
         case outputFormat = "output_format"
         case snapshotScale = "snapshot_scale"
+        case imagePreparationScript = "image_preparation_script"
         case timeoutMs = "timeout_ms"
     }
 }
@@ -606,6 +628,7 @@ private final class SnapshotServer {
             viewportWidth: CGFloat(request.width),
             outputFormat: request.outputFormat ?? "png",
             snapshotScale: CGFloat(request.snapshotScale ?? 1),
+            imagePreparationScript: request.imagePreparationScript,
             webView: webView
         ) { [weak self] failure in
             DispatchQueue.main.async {

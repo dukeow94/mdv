@@ -6,6 +6,9 @@ use anyhow::Result;
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use anyhow::bail;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+pub(crate) const NATIVE_IMAGE_SCRIPT: &str = include_str!("snapshot_images.js");
+
 /// Renders an HTML document into the lossless raster consumed by `GraphicPage`.
 /// `width` is the unchanged CSS viewport; `snapshot_scale` multiplies backend raster density.
 pub fn render_html_to_raster(

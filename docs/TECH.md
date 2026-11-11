@@ -155,10 +155,26 @@ callers retain native density unless they call `render_html_to_png_with_scale`.
 display width. Consequently display height, total rows and scroll positions stay
 fixed while source crop coordinates gain precision at higher density (integer
 raster rounding can differ by one native pixel). No post-capture enlargement is
-performed. Windows applies the multiplier to its existing CDP device scale factor
-and checks dimension/pixel limits at the resulting density. Linux interactive
+performed for text/vector content. Windows keeps its existing CDP device scale
+factor at 2 and applies the multiplier through screenshot clip scaling instead,
+so `devicePixelRatio`, resolution queries and `srcset` selection remain fixed.
+Dimension/pixel limits use the resulting capture density. Linux interactive
 rendering remains unsupported; headless output is unchanged on all platforms.
 Raster memory and transfer costs increase with density (roughly 4x/9x pixels).
+
+HTML `<img>` assets always use the option-1 native density. Immediately before a
+high-density capture, shared `io/snapshot_images.js` draws each loaded image into
+a native-density canvas, copies its computed box/style, and substitutes that
+canvas without changing displayed geometry. This includes GIF frames, SVG files
+used as images, and the selected picture/srcset source. Object-fit and transparency
+are preserved; a geometry change is an explicit error. Progressive halving before
+the final resize avoids WebKit's single-step canvas minification aliasing on
+fine checkerboards/GIF dithering. The script never exports
+or reads back canvas pixels, so local-file and cross-origin canvas tainting does
+not block rendering. Original asset diagnostics are collected before substitution.
+WebKit uses its unchanged `window.devicePixelRatio`; Chromium uses its native 2.
+Inline SVG/Mermaid remains vector content at the requested capture density.
+Option 1 does not perform image preparation and retains its existing raster path.
 
 ### 6.3 Browser Open
 
@@ -239,7 +255,7 @@ repo の `bin/mdv` は install / update の実体であり、`main` への push 
 
 ## Windows backend
 
-`io::snapshot::render_html_to_raster` はOSに応じて既存WebKitか `io::chromium_snapshot` を選択します。Windowsはインストール済みEdge/Chromeを専用profile・sandbox有効で利用し、CSS viewportとdeviceScaleFactor=2を既定値としてlossless PNGを取得します。`--snapshot-scale 1|2|3` はこの密度に掛ける倍率（2/4/6 pixels per CSS pixel）で、CSS viewport は変更しません。通常のブラウザprofileへ接続せず、画像完成結果のキャッシュもしません。
+`io::snapshot::render_html_to_raster` はOSに応じて既存WebKitか `io::chromium_snapshot` を選択します。Windowsはインストール済みEdge/Chromeを専用profile・sandbox有効で利用し、CSS viewportとdeviceScaleFactor=2を既定値としてlossless PNGを取得します。`--snapshot-scale 1|2|3` は screenshot clip の倍率（text/vector は2/4/6 pixels per CSS pixel、img は常に2）で、CSS viewport とdevicePixelRatio は変更しません。通常のブラウザprofileへ接続せず、画像完成結果のキャッシュもしません。
 
 WindowsのWezTermにはOSC1337で可視領域のPNGを送り、小数位置のスクロール補間を維持します。ConPTYがKitty画像命令を透過するかに依存しない構成です。Windows Terminalはこの画像転送方式の対象外です。macOS Ghostty/Kittyの常駐画像方式は変更しません。
 
