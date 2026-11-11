@@ -16,7 +16,7 @@
 
 If you live in [Ghostty](https://ghostty.org/) or [Kitty](https://sw.kovidgoyal.net/kitty/), you no longer need to leave the terminal to read a README.
 
-The [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is also implemented by terminals including Ghostty, Konsole, st (with a patch), Warp, wayst, WezTerm, iTerm2, and xterm.js. `mdv` enables interactive mode in Ghostty, Kitty, and WezTerm. On Windows, use WezTerm: its lossless inline-image transport works through the Windows console, while Windows Terminal does not currently support this viewer’s image path.
+The [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is also implemented by terminals including Ghostty, Konsole, st (with a patch), Warp, wayst, WezTerm, iTerm2, and xterm.js. `mdv` enables interactive mode in Rex, Ghostty, Kitty, and WezTerm. Rex is detected directly via `TERM_PROGRAM=rex` and uses Kitty graphics; no terminal-spoofing alias is needed. On Windows, use WezTerm: its lossless inline-image transport works through the Windows console, while Windows Terminal does not currently support this viewer’s image path.
 
 ## Features
 
@@ -60,7 +60,7 @@ mdv README.md
 
 Windows Terminal and the legacy console can still use the plain-text pipeline (`Get-Content README.md | mdv -`); image viewing requires WezTerm. Windows ARM64 native binaries are not distributed.
 
-**Run** (in Ghostty or Kitty):
+**Run** (in Rex, Ghostty, Kitty, or WezTerm):
 
 ```bash
 mdv README.md
@@ -94,7 +94,7 @@ mdv ./README.md | head -n 50            # plain-text output (pipe/CI)
 
 ## Requirements
 
-- **Terminal**: macOS: [Ghostty](https://ghostty.org/), [Kitty](https://sw.kovidgoyal.net/kitty/), or [WezTerm](https://wezterm.org/); Windows: WezTerm
+- **Terminal**: macOS: Rex, [Ghostty](https://ghostty.org/), [Kitty](https://sw.kovidgoyal.net/kitty/), or [WezTerm](https://wezterm.org/); Windows: WezTerm
 - **Protocol ecosystem**: The [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is also implemented by Ghostty, Konsole, st (with a patch), Warp, wayst, WezTerm, iTerm2, and xterm.js
 - **Rich rendering**: macOS uses its system WebKit; Windows x64 uses installed Microsoft Edge or Chrome. Both produce lossless page images. Linux remains a plain-text/headless target.
 - **Mermaid** (optional): `mmdc` or `npx @mermaid-js/mermaid-cli`, or set `MDV_MERMAID_CMD`
@@ -112,7 +112,7 @@ mdv ./README.md | head -n 50            # plain-text output (pipe/CI)
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `mdv: command not found`           | Ensure `$HOME/.local/bin` is on `PATH`, then restart the terminal.                                                   |
 | `mdv update` fails                 | Confirm the current `mdv` location is writable and GitHub `main` exposes the expected [`bin/mdv`](bin/mdv) artifact. |
-| Plain text instead of rich viewer  | Requires a TTY in Ghostty or Kitty. Pipes and redirects trigger headless mode by design.                             |
+| Plain text instead of rich viewer  | Requires a TTY in Rex, Ghostty, Kitty, or WezTerm. Pipes and redirects trigger headless mode by design.                             |
 | Mermaid diagrams show placeholders | Install `mmdc` or use `npx @mermaid-js/mermaid-cli`. Use `--no-mermaid` to skip entirely.                            |
 | Graphic / snapshot issues          | macOS uses WebKit; Windows requires installed Edge/Chrome and WezTerm. See [docs/TECH.md](docs/TECH.md).                                           |
 

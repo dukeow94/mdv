@@ -98,8 +98,9 @@ pub fn is_supported_terminal(term_program: Option<&str>, term: Option<&str>) -> 
 fn graphics_protocol(term_program: Option<&str>, term: Option<&str>) -> Option<GraphicsProtocol> {
     if term_program.is_some_and(|value| value.eq_ignore_ascii_case("wezterm")) {
         Some(GraphicsProtocol::Inline)
-    } else if term_program.is_some_and(|value| value.eq_ignore_ascii_case("ghostty"))
-        || term.is_some_and(|value| value.contains("kitty"))
+    } else if term_program.is_some_and(|value| {
+        value.eq_ignore_ascii_case("ghostty") || value.eq_ignore_ascii_case("rex")
+    }) || term.is_some_and(|value| value.contains("kitty"))
     {
         Some(GraphicsProtocol::Kitty)
     } else {

@@ -1,6 +1,24 @@
 use std::fs;
 use std::io::Cursor;
 
+#[test]
+fn terminal_detection_preserves_graphics_protocol_selection() {
+    use super::{GraphicsProtocol, graphics_protocol};
+
+    for program in ["rex", "Rex", "ghostty", "Ghostty"] {
+        assert_eq!(
+            graphics_protocol(Some(program), Some("xterm-256color")),
+            Some(GraphicsProtocol::Kitty)
+        );
+    }
+    assert_eq!(graphics_protocol(None, Some("xterm-kitty")), Some(GraphicsProtocol::Kitty));
+    assert_eq!(
+        graphics_protocol(Some("WezTerm"), Some("xterm-kitty")),
+        Some(GraphicsProtocol::Inline)
+    );
+    assert_eq!(graphics_protocol(Some("unknown"), None), None);
+}
+
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
