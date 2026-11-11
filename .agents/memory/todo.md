@@ -1,3 +1,56 @@
+## Rex detection and snapshot scale (2026-07-17)
+
+Plan: recognize `TERM_PROGRAM=rex` (case-insensitive) via Kitty graphics. Add
+`--snapshot-scale 1|2|3`, default 1, as a multiplier of the backend's existing
+raster density (WebKit native density; Windows Chromium's existing 2x density).
+Keep CSS viewport, page zoom, terminal display dimensions and scroll geometry
+unchanged. Capture at higher resolution in the browser, never upscale pixels.
+`docs/PRODUCT.md` is absent; `docs/PRD.md` supplies product context instead.
+
+- [x] Add failing Rex/protocol regressions, implement detection and update terminal messaging.
+- [x] Add failing CLI and real browser scale/layout/crop tests, then thread scale through configuration and both snapshot backends.
+- [x] Document usage, native-density semantics and resource costs; validate CLI, raster dimensions, wrapping and top/middle/bottom crops.
+- [x] Run fmt, clippy, complete tests, browser/PTY smoke tests and inspect rendered artifacts; distinguish compositor evidence from automated evidence.
+- [x] Commit logical changes and push `origin feat/rex-snapshot-scale`; report remaining limitations.
+
+### Review / evidence
+
+- Implementation commits: `38d8649` (Rex detection) and `2b56941` (snapshot density).
+  Both were pushed to the user's fork branch; no history rewrite, PR, installed
+  binary replacement, alias modification or tracked `bin/mdv` update was performed.
+- Red/green: Rex was rejected by the terminal gate, `--snapshot-scale` was rejected
+  by clap, and the WebKit worker ignored scale 2 and returned native raster width.
+  The new regressions reproduce those failures and now pass.
+- Final gates: `cargo fmt --all --check`, all-targets/all-features clippy with
+  `-D warnings`, release build, and the full test suite passed (176 tests passed,
+  3 Chrome-dependent tests ignored by default). Those 3 actual Chrome tests also
+  passed explicitly with `cargo test --lib io::chromium_snapshot::tests::chromium_ -- --ignored`.
+- Real WebKit tests cover PNG/TIFF at 1/2/3/1 density (including worker reuse),
+  identical CSS diagnostics/wrapping height, terminal display dimensions, total
+  rows and top/fractional/middle/bottom crops. A one-third-CSS-pixel SVG stroke
+  resolves fresh black/white detail at 3x rather than enlarged gray native pixels.
+  Chromium tests cover the same geometry and density-aware dimension/pixel limits.
+- Default preservation: the original Swift helper (compiled before implementation)
+  and final helper produced byte-identical PNGs and equal parsed diagnostics for
+  a static typography/vector fixture at default 1x.
+- Final release binary was run via a native macOS PTY with `TERM_PROGRAM=rex`,
+  `TERM=xterm-256color`, explicit 1000x800px / 100x40-cell metrics and no alias.
+  First PNGs were 645x503, 1290x1006 and 1935x1509 at 1/2/3x, each placed at
+  100 columns x 39 rows. PageDown, bottom jump, resize to 90 columns and `q`
+  (exit 0) passed at all three scales. PNG artifacts were directly opened to
+  inspect rendered output. Local evidence: `/tmp/mdv-rex-scale-evidence/`;
+  PTY driver: `/tmp/mdv-verify-rex-scale.py` (not repository/runtime dependencies).
+- Local toolchain limitation: default Command Line Tools has duplicate
+  `SwiftBridging` module maps; Xcode's xcrun is license-gated. For verification only,
+  `PATH=/tmp/mdv-build-tools:$PATH` supplies an xcrun wrapper calling Xcode's Swift
+  compiler directly with the CLT SDK. No system/toolchain files, license settings
+  or project build scripts were changed. Plain cargo builds in this machine's
+  default environment still require fixing that pre-existing toolchain issue.
+- Actual Rex compositor/display sharpness and native Windows runtime were not
+  verified; macOS PTY transport, rendered artifacts and real Chrome backend tests
+  are distinct evidence. CodeRabbit CLI is not installed, so review was local.
+  Higher density increases raster memory/transfer cost; no latency claim is made.
+
 ## Current Task
 
 - [x] raw HTML 復元後に `&nbsp;` などの double-escaped entity が残る再現点を固定する
