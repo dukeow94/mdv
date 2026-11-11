@@ -1,3 +1,38 @@
+## Follow-up: 3x image grid and white scroll flashes
+
+- [x] Inspect source GIF and WebKit PNG separately from the Rex compositor; reproduce the resident replacement ordering defect.
+- [x] Add a failing replacement-order regression, then fix transport ordering without changing document layout.
+- [x] Validate raster artifacts, sustained scroll transport and quality gates; report the Rex compositor evidence gap explicitly.
+- [ ] Verify the user's exact 3x grid/white-flash symptoms in the native Rex compositor (permission requested for a test tab; no tab opened).
+- [x] Commit and push follow-up fixes to `origin feat/rex-snapshot-scale` (`d842674`).
+
+### Follow-up findings / validation
+
+- The README's `docs/demo.gif` is 1920x1080 and already contains a dense ordered
+  dither grid. Its first frame was extracted and opened directly; 3x WebKit PNGs
+  also show that source pattern. Higher snapshot density affects embedded images
+  as well as text. No smoothing/filtering or source-asset modification was added;
+  matching the exact lines seen in Rex still needs native screenshot evidence.
+- Confirmed scroll defect: on reversal into an already-resident window, applying
+  a ready background preparation could evict the image still on screen before
+  emitting the replacement placement. Its intervening PNG upload can be megabytes;
+  correctness must not depend on a terminal holding synchronized output that long.
+  A regression initially failed because image deletion preceded the next placement.
+- Fix: when target pixels are already resident, place them before deferred
+  maintenance evictions/uploads. Always emit the replacement placement before
+  deleting hidden previous placements. Missing-target uploads still protect the
+  currently active image; no extra resident window or image quality reduction.
+- New packet-by-packet tests cover 1/2/3x, forward/reverse/large jumps, asynchronous
+  preparation and the 4096px resident cap. Every packet after startup retains a
+  visible placement; a visible image is never overwritten during transmission.
+- Final fmt/clippy/release build passed; full suite177 passed,3 Chrome tests
+  ignored by default (backend unchanged in this follow-up). Updated PTY driver
+  also checks every actual Kitty packet for a visible placement while exercising
+  PageDown/top/bottom/reversal at all3 scales, followed by resize and q(exit0).
+  This proves stream ordering, not absence of compositor flashes on native Rex.
+- Native test tab permission was requested directly from the user. No additional
+  terminal tab/session was opened, and the installed binary/aliases are untouched.
+
 ## Rex detection and snapshot scale (2026-07-17)
 
 Plan: recognize `TERM_PROGRAM=rex` (case-insensitive) via Kitty graphics. Add
